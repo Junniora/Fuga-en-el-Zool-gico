@@ -204,6 +204,10 @@ Se mantienen el límite de 35 acciones por 10 segundos por conexión, paquetes d
 
 ## Pruebas y compilación
 
+El `package.json` raíz declara `"type": "module"` para que TypeScript compile también `shared/` como ESM. El backend utiliza `NodeNext` con `verbatimModuleSyntax` para detectar inconsistencias de módulos durante la compilación. No retirar esa declaración: los archivos compilados compartidos se ejecutan dentro del ámbito ESM del servidor.
+
+El build del servidor ejecuta automáticamente `test:production`: importa el JavaScript compilado con Node, carga los módulos compartidos y comprueba `/health` en un puerto temporal. Esto cubre errores de arranque que las pruebas con `tsx` pueden ocultar.
+
 ```sh
 npm test
 npm run build

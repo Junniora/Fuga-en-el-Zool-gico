@@ -1,6 +1,7 @@
 {
   "name": "fuga-zoologico",
   "private": true,
+  "type": "module",
   "workspaces": [
     "client",
     "server"

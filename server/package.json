@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
-    "build": "tsc",
+    "build": "tsc && npm run test:production",
+    "test:production": "node --test test/production.test.mjs",
     "start": "node --env-file-if-exists=.env dist/server/src/index.js",
     "test": "tsx --test test/*.test.ts"
   },
