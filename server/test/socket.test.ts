@@ -41,7 +41,13 @@ test(
   'real Socket.IO clients complete game, reconnect and never receive other secrets',
   { timeout: 20000 },
   async () => {
-    const server = createGameServer();
+    const server = createGameServer(undefined, {
+      choiceTime: 5000,
+      memorizeTime: 500,
+      answerTime: 5000,
+      helpLength: 4,
+      sabotageLength: 6,
+    });
     await new Promise<void>((r) => server.http.listen(0, '127.0.0.1', r));
     const url = `http://127.0.0.1:${(server.http.address() as AddressInfo).port}`;
     const sockets: Client[] = [];
@@ -92,29 +98,46 @@ test(
       }
       for (const s of sockets)
         assert.equal((await request(s, 'ready-role', undefined)).ok, true);
+      await until(() => rooms[0]?.status === 'missionBrief');
+      await request(host, 'continue-game', undefined);
       await until(
-        () =>
-          rooms[0]?.status === 'mission' &&
-          secrets.every((s) => !!s?.cards.length),
+        () => rooms[0]?.status === 'mission' && !!secrets[0]?.activity,
       );
+      const sequences: number[][] = [];
+      const ids: string[] = [];
+      for (let i = 0; i < 4; i++) {
+        const activityId = secrets[i]!.activity!.id;
+        ids.push(activityId);
+        assert.equal(
+          (
+            await request(sockets[i], 'choose-activity', {
+              activityId,
+              mode: 'help',
+            })
+          ).ok,
+          true,
+        );
+        await until(() => secrets[i]?.activity?.sequence !== null);
+        sequences.push([...secrets[i]!.activity!.sequence!]);
+      }
+      for (const state of rooms) {
+        const json = JSON.stringify(state);
+        for (const id of ids) assert.equal(json.includes(id), false);
+        for (const field of [
+          'sequence',
+          'mode',
+          'deadline',
+          'contribution',
+          'failedSabotage',
+        ])
+          assert.equal(json.includes('"' + field + '"'), false);
+      }
       const originalSecret = secrets[0]!;
       assert.equal(
-        (await request(host, 'play-card', { cardId: secrets[1]!.cards[0].id }))
-          .ok,
-        false,
-      );
-      assert.equal(
         (
-          await request(host, 'play-card', {
-            cardId: originalSecret.cards.find((c) => c.value === 3)!.id,
-          })
-        ).ok,
-        true,
-      );
-      assert.equal(
-        (
-          await request(host, 'play-card', {
-            cardId: originalSecret.cards[0].id,
+          await request(host, 'submit-activity', {
+            activityId: ids[1],
+            answer: sequences[1],
           })
         ).ok,
         false,
@@ -135,19 +158,43 @@ test(
         (await request(replacement, 'resume-session', sessions[0])).ok,
         true,
       );
-      await until(() => secrets[0]?.hasPlayed === true);
-      assert.equal(secrets[0]?.role, originalSecret.role);
+      await until(() => secrets[0]?.activity?.id === ids[0]);
+      assert.equal(secrets[0]!.role, originalSecret.role);
+      assert.equal(secrets[0]!.activity!.mode, 'help');
+      await until(() =>
+        secrets.every((secret) => secret?.activity?.stage === 'answer'),
+      );
+      assert.equal(secrets[0]!.activity!.sequence, null);
+      assert.equal(
+        (
+          await request(replacement, 'submit-activity', {
+            activityId: ids[0],
+            answer: sequences[0],
+          })
+        ).ok,
+        true,
+      );
+      assert.equal(
+        (
+          await request(replacement, 'submit-activity', {
+            activityId: ids[0],
+            answer: sequences[0],
+          })
+        ).ok,
+        false,
+      );
       for (let i = 1; i < 4; i++)
         assert.equal(
           (
-            await request(sockets[i], 'play-card', {
-              cardId: secrets[i]!.cards.find((c) => c.value === 3)!.id,
+            await request(sockets[i], 'submit-activity', {
+              activityId: ids[i],
+              answer: sequences[i],
             })
           ).ok,
           true,
         );
       await until(() => rooms[1]?.status === 'missionResult');
-      assert.equal(rooms[1]!.history[0].total, 12);
+      assert.equal(rooms[1]!.history[0].total, 8);
       await request(sockets[1], 'continue-game', undefined);
       await request(sockets[1], 'start-voting', undefined);
       const guard = secrets.findIndex((s) => s?.role === 'guard');
@@ -192,9 +239,42 @@ test(
       const b = server.engine.create('B', 'b');
       server.engine.finish(b.room, null, 'test');
       b.room.finishedAt = Date.now() - gameConfig.ROOM_CLEANUP_TIME - 1;
+      const c = server.engine.create('C', 'c');
+      c.room.updatedAt = Date.now() - gameConfig.ROOM_IDLE_TIME - 1;
       await until(() => server.engine.rooms.size === 0);
     } finally {
       await server.close();
     }
   },
 );
+
+test('cleanup cancels an abandoned game before expired activities can resolve', async () => {
+  const server = createGameServer();
+  try {
+    const { room } = server.engine.create('A', 'a');
+    for (let i = 1; i < 4; i++) server.engine.join(room.code, 'P' + i, 's' + i);
+    server.engine.start(room, room.hostId);
+    for (const p of room.players) server.engine.ready(room, p.id);
+    server.engine.continue(room, room.hostId);
+    const guard = room.players.find((p) => p.role === 'guard')!;
+    server.engine.chooseActivity(
+      room,
+      guard.id,
+      guard.activity!.id,
+      'sabotage',
+    );
+    server.engine.disconnect(room, guard.id);
+    guard.disconnectedAt = Date.now() - gameConfig.RECONNECT_GRACE_TIME - 1;
+    for (const p of room.players) {
+      p.activity!.choiceDeadline = Date.now() - 1;
+      p.activity!.revealUntil = Date.now() - 1;
+      p.activity!.answerDeadline = Date.now() - 1;
+    }
+    await until(() => room.status === 'finished');
+    assert.equal(room.winner, null);
+    assert.equal(room.history.length, 0);
+    assert.equal(room.clues.length, 0);
+  } finally {
+    await server.close();
+  }
+});

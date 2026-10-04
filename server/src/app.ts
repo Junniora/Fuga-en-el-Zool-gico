@@ -9,8 +9,15 @@ import type {
 } from '../../shared/protocol.js';
 import { GameEngine, ensure, type GameRoom } from './game/engine.js';
 import { gameConfig } from './game/gameConfig.js';
+import {
+  defaultActivitySettings,
+  type ActivitySettings,
+} from './game/activity.js';
 
-export function createGameServer(origins = ['http://localhost:5173']) {
+export function createGameServer(
+  origins = ['http://localhost:5173'],
+  activitySettings: ActivitySettings = defaultActivitySettings,
+) {
   const app = express();
   app.disable('x-powered-by');
   app.get('/health', (_req, res) => res.json({ status: 'ok' }));
@@ -24,7 +31,7 @@ export function createGameServer(origins = ['http://localhost:5173']) {
         !req.headers.origin || origins.includes(req.headers.origin),
       ),
   });
-  const engine = new GameEngine();
+  const engine = new GameEngine(Date.now, activitySettings);
   function broadcast(room: GameRoom) {
     io.to(room.code).emit('room-updated', engine.publicState(room));
     for (const player of room.players)
@@ -106,13 +113,22 @@ export function createGameServer(origins = ['http://localhost:5173']) {
     });
     function mutate(action: (room: GameRoom, id: string) => void) {
       const { room, player } = current();
-      action(room, player.id);
-      room.updatedAt = Date.now();
-      broadcast(room);
+      try {
+        action(room, player.id);
+        room.updatedAt = Date.now();
+      } finally {
+        // A late/invalid action can still advance an expired server deadline.
+        broadcast(room);
+      }
     }
     bind('start-game', () => mutate((r, id) => engine.start(r, id)));
     bind('ready-role', () => mutate((r, id) => engine.ready(r, id)));
-    bind('play-card', (p) => mutate((r, id) => engine.play(r, id, p?.cardId)));
+    bind('choose-activity', (p) =>
+      mutate((r, id) => engine.chooseActivity(r, id, p?.activityId, p?.mode)),
+    );
+    bind('submit-activity', (p) =>
+      mutate((r, id) => engine.submitActivity(r, id, p?.activityId, p?.answer)),
+    );
     bind('start-voting', () => mutate((r, id) => engine.startVoting(r, id)));
     bind('submit-vote', (p) =>
       mutate((r, id) => engine.vote(r, id, p?.targetId)),
@@ -151,6 +167,8 @@ export function createGameServer(origins = ['http://localhost:5173']) {
           broadcast(room);
         }
       }
+      // Departure cancellation takes precedence over activity resolution.
+      if (engine.tickRoom(room, now)) broadcast(room);
       if (
         (room.finishedAt !== null &&
           now - room.finishedAt >= gameConfig.ROOM_CLEANUP_TIME) ||
@@ -164,7 +182,7 @@ export function createGameServer(origins = ['http://localhost:5173']) {
         io.in(room.code).disconnectSockets(true);
       }
     }
-  }, 1000);
+  }, gameConfig.TICK_INTERVAL);
   cleanup.unref();
   return {
     http,

@@ -1,6 +1,6 @@
 # Fuga en el Zoológico
 
-Juego de mesa digital de roles ocultos para **4 a 6 jugadores**, cada uno en su propio celular o computadora. Un guarda encubierto intenta frustrar la fuga. El resto de la manada coopera, analiza cartas anónimas y decide a quién acusar.
+Juego de mesa digital de roles ocultos para **4 a 6 jugadores**, cada uno en su propio celular o computadora. Un guarda encubierto intenta frustrar la fuga. El resto de la manada coopera, resuelve actividades de memoria, combina pistas verificables y decide a quién acusar.
 
 **No utiliza ninguna base de datos.** Las salas y sus secretos viven únicamente en la memoria de un proceso Node.js. Reiniciar o desplegar el servidor elimina las partidas existentes.
 
@@ -10,7 +10,10 @@ Juego de mesa digital de roles ocultos para **4 a 6 jugadores**, cada uno en su 
 fuga-zoologico/
 ├── client/
 │   ├── src/
-│   │   ├── components/GameParts.tsx  # Cartas, jugadores, progreso y rol
+│   │   ├── components/GameParts.tsx  # Contribuciones anónimas, jugadores y rol
+│   │   ├── components/MemoryActivity.tsx # Secuencia privada y respuesta
+│   │   ├── components/CredentialCard.tsx # Credencial pública
+│   │   ├── components/InvestigationBoard.tsx # Pistas y candidatos
 │   │   ├── hooks/useGame.ts         # Socket, sesión, reconexión y errores
 │   │   ├── App.tsx                  # Pantallas y fases del juego
 │   │   ├── main.tsx
@@ -21,11 +24,15 @@ fuga-zoologico/
 │   ├── src/
 │   │   ├── game/engine.ts           # Reglas y proyecciones públicas/privadas
 │   │   ├── game/gameConfig.ts       # Configuración y misiones
+│   │   ├── game/activity.ts         # Desafíos, etapas y plazos
+│   │   ├── game/investigation.ts    # Asignación de credenciales y pistas
+│   │   ├── utils/random.ts         # Mezcla criptográfica
 │   │   ├── app.ts                  # Express, eventos y limpieza
 │   │   └── index.ts                # Puerto, orígenes y cierre del proceso
 │   ├── test/                       # Pruebas de reglas y clientes Socket.IO
 │   └── .env.example
 ├── shared/protocol.ts              # Contrato TypeScript sin secretos internos
+├── shared/investigation.ts         # Símbolos y filtrado de candidatos públicos
 ├── package.json                    # npm workspaces
 ├── vercel.json
 └── render.yaml
@@ -88,76 +95,112 @@ En PowerShell, si la política de ejecución bloquea `npm.ps1`, usa `npm.cmd` en
 
 `localhost` en un celular apunta al propio celular, por lo que es necesario usar la IP de la computadora. Para jugar fuera de la misma red, despliega ambas aplicaciones. En una sola computadora puedes probar con perfiles de navegador o ventanas privadas independientes: las pestañas que comparten almacenamiento representan al mismo jugador.
 
-## Reglas del MVP
+## Reglas del MVP: actividades e investigación
 
-- El anfitrión inicia con 4–6 jugadores conectados. Hay un guarda aleatorio.
-- Cada participante ve su propio rol y confirma que lo entendió. Todos deben confirmar antes de jugar.
-- Misiones: cerradura, cámaras, llave y salida. Meta por defecto: `ceil(jugadores × 1.5)` puntos (6, 8 o 9).
-- Cada misión renueva la mano: animales `+1/+2/+3`; guarda también `-1/-2/-3`. Se elige exactamente una carta y no se puede cambiar.
-- Solo se publica cuántas cartas se han enviado. Cuando todos terminan se publican valores mezclados, total y resultado, sin atribución.
-- El anfitrión abre la discusión. Pueden hablar en persona o por una llamada externa; no hay chat integrado.
-- Se puede continuar sin acusar o convocar una votación. Cada jugador elige a otro, una única vez. Solo se publica el progreso hasta que todos votan.
-- **Más del 50 % de todos los jugadores** debe acusar a la misma persona para revelar si es guarda. Nunca se publica quién votó por quién. Nadie queda eliminado.
-- Cada votación completa consume una de las **2 acusaciones**, incluso sin mayoría. Una acusación fallida permite continuar mientras quede una oportunidad.
-- Los animales ganan al descubrir al guarda o superar las **4 misiones**. El guarda gana con **3 fallos**, al agotarse las acusaciones sin descubrirlo o al terminar las misiones sin completar la fuga.
-- Orden deliberado: resultado → discusión → acusación opcional → evaluación de victoria → siguiente misión. Por tanto, hay una última oportunidad de descubrir al guarda después de la misión decisiva. En una votación, acertar tiene prioridad; agotar acusaciones sin acertar da la victoria al guarda. Sin votación, se evalúan primero los éxitos, después los fallos y el fin de las misiones.
-- Al terminar, el anfitrión puede devolver la misma sala al lobby; el siguiente inicio reasigna todos los roles.
+1. El anfitrión inicia con 4–6 jugadores conectados. El servidor asigna **un guarda** y credenciales públicas independientes del rol.
+2. Cada participante confirma su rol secreto. El anfitrión presenta la misión y pulsa **Comenzar actividades** cuando todos estén preparados.
+3. Todos tienen 20 segundos para comenzar. El animal inicia ayuda; el guarda elige en secreto ayudar o sabotear. No elegir aporta +1 y no produce una pista.
+4. Se muestra una secuencia durante 8 segundos: **4 símbolos para ayuda, 6 para sabotaje**. Después se oculta y hay 45 segundos para reproducirla. Se puede corregir antes de enviar, pero solo se acepta un envío completo.
+5. El servidor compara la respuesta con su desafío y calcula la contribución:
 
-### Configuración
+| Acción                  | Correcta      | Incorrecta o vencida                    |
+| ----------------------- | ------------- | --------------------------------------- |
+| Ayuda (animal o guarda) | +2            | +1, sin pista                           |
+| Intento de sabotaje     | −2, sin pista | +1 y una pista nueva si quedan detalles |
+| No elegir acción        | —             | +1, sin pista                           |
+
+6. Solo se publica cuántos participantes terminaron. Al finalizar todos, las contribuciones se mezclan y se muestran sin nombres. **La meta equivale al número de jugadores: 4, 5 o 6 puntos.**
+7. Las pistas del sabotaje fallido se publican con el resultado, nunca cuando responde el guarda. El equipo consulta el tablero, discute y puede acusar o continuar.
+8. Una acusación exige **más de la mitad de todos los votos**. Hay 2 oportunidades; una votación sin mayoría también consume una. Una mayoría revela si el acusado es guarda, pero no elimina jugadores.
+9. Los animales ganan al identificar al guarda o lograr **3 misiones superadas de 4**. El guarda gana con **2 fallos**, con 2 acusaciones infructuosas o al llegar al final sin completar la fuga.
+10. Se conserva este orden: resultado → discusión → acusación opcional → evaluación de victoria → próxima misión. Una acusación acertada tiene prioridad; una acusación que agota las oportunidades sin acertar da la victoria al guarda. Sin votación, se evalúan éxitos, fallos y fin de misiones.
+11. Reiniciar desde el resultado devuelve al lobby y elimina pistas, credenciales y desafíos; el siguiente inicio asigna todo de nuevo.
+
+Las cuatro misiones siguen siendo cerradura, cámaras, llave y salida. Usan el mismo minijuego modular con instrucciones temáticas diferentes. Se **sustituyó** la elección manual de cartas: `GameCard` representa ahora las contribuciones del resultado.
+
+### Credenciales y evidencia
+
+Cada credencial tiene pulsera (azul/ámbar), símbolo (hoja/luna) y herramienta (llave inglesa/linterna). Se muestra texto junto a los iconos para no depender del color.
+
+El servidor utiliza patrones binarios distintos para 4, 5 y 6 participantes. Cada valor de cada columna aparece al menos dos veces; ninguna fila completa se repite. Mezcla filas, columnas y etiquetas independientemente del rol. No se elige una credencial especial para el guarda.
+
+Al fallar un sabotaje, el servidor elige una característica verdadera y todavía no revelada. Prioriza la que más reduce los candidatos compatibles con la evidencia acumulada. La primera siempre deja al menos dos; las siguientes pueden identificar a una sola persona. Después de revelar las tres características, otro fallo indica que no hay nuevos detalles.
+
+El tablero utiliza exclusivamente `players[].credential` y `clues` públicos. No consulta roles. Nadie es acusado automáticamente. Una misión exitosa puede contener un sabotaje; una ayuda correcta no demuestra inocencia; no encontrar pistas no significa que no haya guarda.
+
+### Configuración y balance inicial
 
 Modifica `server/src/game/gameConfig.ts`:
 
-| Valor                         | Predeterminado | Uso                              |
-| ----------------------------- | -------------- | -------------------------------- |
-| `MIN_PLAYERS` / `MAX_PLAYERS` | 4 / 6          | Capacidad                        |
-| `NUMBER_OF_GUARDS`            | 1              | Cantidad de guardas aleatorios   |
-| `MAX_FAILED_MISSIONS`         | 3              | Derrota por fallos               |
-| `MAX_ACCUSATIONS`             | 2              | Votaciones disponibles           |
-| `REQUIRED_SUCCESSES`          | 4              | Misiones superadas para escapar  |
-| `POINTS_PER_PLAYER`           | 1.5            | Meta de cada misión              |
-| `RECONNECT_GRACE_TIME`        | 90 segundos    | Plazo de reconexión              |
-| `ROOM_CLEANUP_TIME`           | 5 minutos      | Conservación del resultado final |
-| `ROOM_IDLE_TIME`              | 1 hora         | Límite de inactividad            |
-| `MAX_ROOMS`                   | 500            | Límite de salas en memoria       |
+| Valor                         | Predeterminado | Uso                                        |
+| ----------------------------- | -------------- | ------------------------------------------ |
+| `MIN_PLAYERS` / `MAX_PLAYERS` | 4 / 6          | Capacidad compatible con credenciales      |
+| `NUMBER_OF_GUARDS`            | 1              | El motor exige exactamente uno en este MVP |
+| `MAX_FAILED_MISSIONS`         | 2              | Derrota por fallos                         |
+| `MAX_ACCUSATIONS`             | 2              | Votaciones disponibles                     |
+| `REQUIRED_SUCCESSES`          | 3              | Misiones superadas para escapar            |
+| `POINTS_PER_PLAYER`           | 1              | Meta por jugador                           |
+| `HELP_POINTS`                 | 2              | Ayuda correcta                             |
+| `MINIMUM_POINTS`              | 1              | Fallo, vencimiento o no elegir             |
+| `SABOTAGE_POINTS`             | −2             | Sabotaje correcto                          |
+| `ACTIVITY_CHOICE_TIME`        | 20 segundos    | Preparación/decisión privada               |
+| `ACTIVITY_MEMORIZE_TIME`      | 8 segundos     | Mostrar símbolos                           |
+| `ACTIVITY_ANSWER_TIME`        | 45 segundos    | Responder después de memorizar             |
+| `HELP_SEQUENCE_LENGTH`        | 4              | Longitud normal                            |
+| `SABOTAGE_SEQUENCE_LENGTH`    | 6              | Longitud más difícil                       |
+| `RECONNECT_GRACE_TIME`        | 90 segundos    | Plazo de reconexión                        |
+| `ROOM_CLEANUP_TIME`           | 5 minutos      | Conservación del resultado final           |
+| `ROOM_IDLE_TIME`              | 1 hora         | Límite de inactividad                      |
+| `MAX_ROOMS`                   | 500            | Límite de salas                            |
+| `TICK_INTERVAL`               | 250 ms         | Revisión de plazos y limpieza              |
 
-Las misiones se editan en `missionTemplates`. Mantén `REQUIRED_SUCCESSES` entre 1 y la cantidad de misiones. La interfaz de la sala recibe las reglas numéricas del servidor; la guía inicial describe los valores predeterminados. Si agregas varios guardas, la regla actual sigue concediendo la victoria al descubrir **cualquiera**. La política de acusaciones está encapsulada en `resolveAccusation`; las condiciones de victoria, en `continue`.
+Son los valores solicitados como **balance inicial**, no un equilibrio demostrado. Con +1 por omisión y meta igual al número de jugadores, una ronda donde nadie actúa supera la misión. Un sabotaje también puede ser insuficiente si los demás ayudan correctamente. Ajustar metas, contribuciones y dificultad después de partidas reales; los tests verifican reglas, no diversión o equilibrio.
 
-## Eventos y privacidad
+`missionTemplates` permite editar misiones. Mantén el objetivo de éxitos dentro del número de misiones y usa tiempos positivos, razonables y una secuencia de sabotaje más larga. La guía inicial describe los valores predeterminados; los números de la sala se reciben del servidor. Agregar más guardas o tamaños de sala exige rediseñar la inferencia de pistas.
 
-Todos los eventos cliente → servidor reciben un ACK `{ ok, error?, session? }`.
+## Eventos, tiempos y privacidad
 
-| Evento           | Datos            | Efecto                           |
-| ---------------- | ---------------- | -------------------------------- |
-| `create-room`    | `{ name }`       | Crea sala y credencial           |
-| `join-room`      | `{ code, name }` | Añade participante               |
-| `resume-session` | Sesión con token | Recupera jugador tras reconectar |
-| `start-game`     | —                | Anfitrión asigna roles           |
-| `ready-role`     | —                | Confirma lectura privada         |
-| `play-card`      | `{ cardId }`     | Envía una carta propia           |
-| `continue-game`  | —                | Anfitrión avanza la fase         |
-| `start-voting`   | —                | Anfitrión convoca acusación      |
-| `submit-vote`    | `{ targetId }`   | Vota en secreto                  |
-| `leave-room`     | —                | Abandona voluntariamente         |
-| `play-again`     | —                | Anfitrión reinicia el lobby      |
+Todos los eventos cliente → servidor usan un ACK `{ ok, error?, session? }`.
 
-Servidor → cliente:
+| Evento            | Datos                    | Efecto                                               |
+| ----------------- | ------------------------ | ---------------------------------------------------- |
+| `create-room`     | `{ name }`               | Crea sala                                            |
+| `join-room`       | `{ code, name }`         | Une participante                                     |
+| `resume-session`  | Sesión con token         | Recupera la misma sesión                             |
+| `start-game`      | —                        | Asigna roles y credenciales                          |
+| `ready-role`      | —                        | Confirma el rol                                      |
+| `continue-game`   | —                        | Anfitrión inicia actividades o avanza las fases      |
+| `choose-activity` | `{ activityId, mode }`   | Elige ayuda o sabotaje privado                       |
+| `submit-activity` | `{ activityId, answer }` | Envía los índices de la secuencia, no una puntuación |
+| `start-voting`    | —                        | Convoca acusación                                    |
+| `submit-vote`     | `{ targetId }`           | Voto secreto                                         |
+| `leave-room`      | —                        | Abandona                                             |
+| `play-again`      | —                        | Reinicia el lobby                                    |
 
-- `room-updated`: proyección pública explícita. Jugadores sin roles, tokens ni manos; progreso, resultados anónimos y reglas. La identidad del guarda solo aparece al finalizar, o se confirma para el acusado cuando la mayoría lo identifica.
-- `private-state`: enviado exclusivamente al socket del propietario. Rol, mano y confirmaciones propias.
-- `room-closed`: avisa de caducidad o sustitución de sesión por otra pestaña.
+Se retiró `play-card`. La fase nueva `missionBrief` presenta cada misión antes de iniciar su reloj. Dentro de `mission`, cada actividad privada pasa por `choice → memorize → answer → done`.
 
-El servidor valida identidad, rol, pertenencia de cartas, permisos de anfitrión, fase, capacidad, nombres, objetivos de voto y envíos duplicados. No acepta puntuaciones ni roles aportados por el cliente. Hay límite de 35 acciones por 10 segundos por conexión y paquetes de 8 KiB. CORS y el handshake solo admiten los orígenes configurados; los clientes sin encabezado Origin se admiten para herramientas nativas y pruebas.
+- `room-updated`: jugadores y credenciales públicas, contador agregado de actividades, pistas publicadas y resultados anónimos. No contiene desafíos, decisiones, tiempos individuales, respuestas, roles ni tokens. El guarda solo se confirma por mayoría y se identifica al finalizar.
+- `private-state`: exclusivamente al socket del dueño. Rol, confirmaciones y actividad propia. La secuencia solo se envía mientras está en `memorize`; después se omite, incluso al reconectar.
+- `room-closed`: caducidad o sustitución de sesión.
+
+El servidor valida la fase, identidad de la actividad, pertenencia al jugador, rol necesario para sabotear, tipo/longitud de respuesta y plazo. Responder antes de memorizar, después de vencer, con otro desafío o por segunda vez se rechaza. La elección no puede cambiarse. Los plazos se revisan también al recibir respuestas, sin depender de cuándo corra el siguiente tick.
+
+El cliente usa la hora privada del servidor y un reloj monotónico solo para mostrar el contador; nunca calcula el resultado. Las respuestas y decisiones no se envían a otros jugadores. Las pistas se calculan únicamente al resolver todas las actividades, evitando notificaciones individuales de sabotaje.
+
+**Límite antitrampas:** la secuencia necesariamente llega al navegador para mostrarla. Alguien que inspeccione su propio tráfico puede copiarla. No se presenta este MVP como protección contra esa conducta, pero el servidor siempre comprueba respuestas y conserva la autoridad sobre puntos, pistas y victorias.
+
+Se mantienen el límite de 35 acciones por 10 segundos por conexión, paquetes de 8 KiB y orígenes autorizados por CORS/handshake.
 
 ## Memoria, desconexiones y abandono
 
 `GameEngine.rooms` es un `Map<string, GameRoom>`. Nunca se serializa a archivos ni a servicios externos.
 
-- `localStorage` guarda `roomCode`, `playerId`, `playerName` y un token aleatorio de reconexión. **No guarda roles, cartas ni votos**. El token es una credencial: no se comparte con otros jugadores.
-- Al perder conexión, el jugador conserva su lugar durante 90 segundos. La partida espera las respuestas pendientes; nunca inventa cartas ni votos.
+- `localStorage` guarda `roomCode`, `playerId`, `playerName` y un token aleatorio de reconexión. **No guarda roles, desafíos, respuestas ni votos**. El token es una credencial: no se comparte con otros jugadores.
+- Al perder conexión, el jugador conserva su lugar durante 90 segundos. Los relojes siguen corriendo y las actividades vencidas se resuelven con la contribución mínima definida; no se inventan votos.
 - El anfitrión se transfiere inmediatamente al siguiente jugador conectado. Recuperar la conexión no expulsa al anfitrión sustituto.
-- Al recargar se presenta el token y el servidor recupera el mismo rol, mano y selección. Abrir esa sesión en otra pestaña sustituye la conexión anterior.
+- Al recargar se presenta el token y el servidor recupera el mismo rol, credencial, desafío, decisión y contribución registrada. No concede otro intento ni reinicia plazos. Una respuesta parcial aún sin enviar se pierde. Abrir esa sesión en otra pestaña sustituye la conexión anterior.
 - Salir voluntariamente elimina al jugador. Si una partida está activa, se cancela sin ganador; esta misma regla se aplica al agotar el plazo de reconexión. Los demás pueden reiniciar con al menos 4 participantes.
-- La sala se elimina al quedarse sin participantes. Si todos perdieron la red, primero se respeta su plazo de reconexión. Las salas terminadas caducan tras 5 minutos y las inactivas tras una hora. La limpieza se revisa cada segundo.
+- La sala se elimina al quedarse sin participantes. Si todos perdieron la red, primero se respeta su plazo de reconexión. Las salas terminadas caducan tras 5 minutos y las inactivas tras una hora. La limpieza se revisa cada 250 ms. Si coinciden una baja definitiva y un vencimiento, la cancelación por abandono tiene prioridad sobre resolver la misión.
 
 ## Pruebas y compilación
 
@@ -166,7 +209,7 @@ npm test
 npm run build
 ```
 
-Las pruebas cubren reglas, 4–6 participantes, privacidad, votos duplicados, cartas ajenas, fases incorrectas, victorias, sesiones inválidas, transferencia de anfitrión y limpieza. La prueba de integración levanta un servidor real en un puerto temporal y conecta cuatro clientes Socket.IO, reconecta uno y completa una partida.
+Las pruebas cubren reglas, 4–6 participantes, privacidad, votos duplicados, actividades ajenas, plazos, credenciales, evidencia acumulativa, fases incorrectas, victorias, sesiones inválidas, transferencia de anfitrión y limpieza. La prueba de integración levanta un servidor real en un puerto temporal y conecta cuatro clientes Socket.IO, reconecta uno y completa una partida.
 
 Prueba de interfaz con cuatro sesiones de navegador independientes:
 
@@ -174,11 +217,11 @@ Prueba de interfaz con cuatro sesiones de navegador independientes:
 npm run test:e2e
 ```
 
-En Windows usa Microsoft Edge instalado. En Linux/macOS instala primero el navegador con `npx playwright install chromium`. La prueba inicia y cierra sus servidores en los puertos 3011 y 5175, juega las cuatro misiones, recarga una sesión, comprueba tamaños de móvil/tablet/escritorio y genera capturas en `previews/`. No debe haber otros procesos usando esos puertos.
+En Windows usa Microsoft Edge instalado. En Linux/macOS instala primero el navegador con `npx playwright install chromium`. La prueba inicia y cierra sus servidores en los puertos 3011 y 5175, juega tres misiones con pistas, reinicia y completa otra con votación, recarga una sesión, comprueba tamaños de móvil/tablet/escritorio y genera capturas en `previews/`. No debe haber otros procesos usando esos puertos.
 
 `npm run format` aplica el formato del proyecto y `npm run format:check` lo verifica.
 
-Las pruebas de navegador también comprueban el tema inicial del sistema, la persistencia manual, la sincronización entre pestañas, el almacenamiento bloqueado y movimiento reducido. Verifican Créditos en 375, 768 y 1280 px con ambas paletas y un contraste de texto mínimo de 4.5:1 en las combinaciones semánticas principales. El recorrido multijugador incluye cambiar el tema con una carta seleccionada y completar una acusación en modo oscuro. Las capturas nuevas se guardan en `previews/credits-{light|dark}-{ancho}.png`, `previews/mission-dark.png` y `previews/voting-dark.png`.
+Las pruebas de navegador también comprueban el tema inicial del sistema, la persistencia manual, la sincronización entre pestañas, el almacenamiento bloqueado y movimiento reducido. Verifican Créditos en 375, 768 y 1280 px con ambas paletas y un contraste de texto mínimo de 4.5:1 en las combinaciones semánticas principales. El recorrido multijugador incluye cambiar el tema mientras se memoriza y completar una acusación en modo oscuro. Las capturas nuevas se guardan en `previews/credits-{light|dark}-{ancho}.png`, `previews/memory-mobile.png` y `previews/voting-dark.png`. El tablero se captura en `previews/investigation-desktop.png` y `previews/investigation-mobile.png`.
 
 Para ejecutar el backend compilado:
 

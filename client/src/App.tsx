@@ -25,6 +25,9 @@ import { Modal } from './components/Modal';
 import { ThemeToggle } from './components/ThemeToggle';
 import { Credits } from './pages/Credits';
 import { useTheme } from './hooks/useTheme';
+import { MemoryActivity } from './components/MemoryActivity';
+import { InvestigationBoard } from './components/InvestigationBoard';
+import { CredentialCard } from './components/CredentialCard';
 
 export default function App() {
   const game = useGame();
@@ -35,7 +38,6 @@ export default function App() {
   );
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
-  const [card, setCard] = useState('');
   const [target, setTarget] = useState('');
   const [rules, setRules] = useState(false);
   const [showRole, setShowRole] = useState(false);
@@ -45,6 +47,7 @@ export default function App() {
   const disabled = busy || !connected || restoring;
   const mission = room?.missions[room.currentMission];
   const result = room?.history.at(-1);
+  const me = room?.players.find((p) => p.id === session?.playerId);
   const action = (
     event:
       | 'start-game'
@@ -400,6 +403,14 @@ export default function App() {
                       <p>Espera a que todos conozcan su papel.</p>
                     </>
                   )}
+                  {me && (
+                    <>
+                      <p className="muted">
+                        Tu credencial es pública y no revela tu rol.
+                      </p>
+                      <CredentialCard player={me} />
+                    </>
+                  )}
                   <Waiting
                     count={room.readyCount}
                     total={room.players.length}
@@ -423,59 +434,68 @@ export default function App() {
                     </div>
                   </>
                 )}
+              {room.status === 'missionBrief' && (
+                <>
+                  <h2>
+                    {mission?.icon} {mission?.name}
+                  </h2>
+                  <p>{mission?.description}</p>
+                  <div className="tip">
+                    Cada jugador resolverá una secuencia de memoria. Ayuda
+                    correcta: +{room.rules.helpPoints}; error o ausencia de
+                    respuesta: +{room.rules.minimumPoints}. Un sabotaje exitoso
+                    aporta {room.rules.sabotagePoints}. Si el guarda intenta
+                    sabotear y falla, puede dejar una pista.
+                  </div>
+                  <p className="muted">
+                    Preparen sus pantallas antes de comenzar. Los tiempos siguen
+                    corriendo al desconectarse.
+                  </p>
+                  {hostButtons(
+                    <button
+                      className="primary"
+                      disabled={disabled}
+                      onClick={() => action('continue-game')}
+                    >
+                      Comenzar actividades <ArrowRight size={18} />
+                    </button>,
+                  )}
+                </>
+              )}
               {room.status === 'mission' && (
                 <>
                   <h2>
                     {mission?.icon} {mission?.name}
                   </h2>
                   <p>{mission?.description}</p>
-                  <div className="hand-heading">
-                    <h3>
-                      {secret?.hasPlayed
-                        ? 'Tu carta está sobre la mesa.'
-                        : 'Elige tu movimiento'}
-                    </h3>
-                    <span>Tu mano es privada</span>
-                  </div>
-                  {!secret?.hasPlayed ? (
-                    <>
-                      <div className="hand">
-                        {secret?.cards.map((c) => (
-                          <GameCard
-                            key={c.id}
-                            card={c}
-                            selected={card === c.id}
-                            disabled={disabled}
-                            onClick={() => setCard(c.id)}
-                          />
-                        ))}
-                      </div>
-                      <button
-                        className="primary"
-                        disabled={
-                          disabled || !secret?.cards.some((c) => c.id === card)
-                        }
-                        onClick={() => {
-                          void send('play-card', { cardId: card });
-                        }}
-                      >
-                        Jugar carta en secreto <ArrowRight size={18} />
-                      </button>
-                    </>
+                  {secret?.activity ? (
+                    <MemoryActivity
+                      key={secret.activity.id}
+                      activity={secret.activity}
+                      role={secret.role}
+                      mission={room.currentMission}
+                      rules={room.rules}
+                      disabled={disabled}
+                      onChoose={(mode) => {
+                        void send('choose-activity', {
+                          activityId: secret.activity!.id,
+                          mode,
+                        });
+                      }}
+                      onSubmit={(answer) => {
+                        void send('submit-activity', {
+                          activityId: secret.activity!.id,
+                          answer,
+                        });
+                      }}
+                    />
                   ) : (
-                    <div className="submitted">
-                      <Check size={25} />
-                      <p>
-                        Nadie sabe qué elegiste.
-                        <br />
-                        <strong>Espera al resto del equipo.</strong>
-                      </p>
-                    </div>
+                    <p className="muted">Recuperando tu actividad privada…</p>
                   )}
                   <Waiting
-                    count={room.submittedCards}
+                    count={room.completedActivities}
                     total={room.players.length}
-                    verb="han elegido su carta"
+                    verb="han terminado su actividad"
                   />
                 </>
               )}
@@ -492,14 +512,12 @@ export default function App() {
                       : 'Algo salió mal…'}
                   </h2>
                   <p>
-                    Estas son las cartas del equipo, mezcladas y sin nombres.
+                    Estas son las contribuciones del equipo, mezcladas y sin
+                    nombres.
                   </p>
-                  <div className="result-cards">
+                  <div className="contribution-cards">
                     {result.cards.map((value, i) => (
-                      <span key={i} className={value < 0 ? 'negative' : ''}>
-                        {value > 0 ? '+' : ''}
-                        {value}
-                      </span>
+                      <GameCard key={i} card={{ id: String(i), value }} />
                     ))}
                   </div>
                   <div className="score">
@@ -509,8 +527,19 @@ export default function App() {
                   <p>
                     {result.cards.some((v) => v < 0)
                       ? 'Hubo un sabotaje. ¿Quién estará detrás?'
-                      : 'Todas las cartas fueron de ayuda. Mantengan los ojos abiertos.'}
+                      : 'Todas las contribuciones fueron positivas; eso no demuestra inocencia.'}
                   </p>
+                  <div className="tip evidence-result" role="status">
+                    {result.clue ? (
+                      <>
+                        🔎 Nueva pista: <strong>{result.clue.text}</strong>
+                      </>
+                    ) : result.evidence === 'exhausted' ? (
+                      'La investigación no encontró nuevos detalles: todas las características disponibles ya se conocen.'
+                    ) : (
+                      'No se encontraron nuevas pistas en esta misión.'
+                    )}
+                  </div>
                   {hostButtons(
                     <button
                       className="primary"
@@ -529,8 +558,9 @@ export default function App() {
                   </span>
                   <h2>Es hora de atar cabos.</h2>
                   <p>
-                    Hablen entre ustedes, en persona o por llamada. ¿Qué salió
-                    mal? ¿Quién está intentando ganarse su confianza?
+                    Consulten las pistas y credenciales del tablero. Hablen en
+                    persona o por llamada: ¿quién coincide con toda la
+                    evidencia?
                   </p>
                   <div className="tip">
                     Quedan{' '}
@@ -763,6 +793,7 @@ export default function App() {
               </div>
             </aside>
           </div>
+          {room.status !== 'waiting' && <InvestigationBoard room={room} />}
         </main>
       )}
       <footer className={room ? 'game-footer' : 'site-footer'}>
@@ -787,25 +818,49 @@ export default function App() {
           <span className="eyebrow">GUÍA DE CAMPO</span>
           <h2 id="rules-title">El plan de escape</h2>
           <ol>
-            <li>Reúnan de 4 a 6 jugadores. Cada uno necesita una pantalla.</li>
-            <li>Uno será el guarda encubierto. Mantengan su rol en secreto.</li>
             <li>
-              En cada misión todos juegan una carta. Los animales ayudan; el
-              guarda también puede sabotear.
+              Reúnan de 4 a 6 jugadores, cada uno con su pantalla. Uno será el
+              guarda encubierto.
             </li>
             <li>
-              Se suman las cartas anónimas. Alcancen la meta para superar la
-              misión. Recibirán una mano nueva en cada ronda.
+              Cada jugador tiene una credencial pública: pulsera, símbolo y
+              herramienta. Las características se comparten; la combinación
+              completa es única y no depende del rol.
             </li>
             <li>
-              Discutan y decidan si quieren acusar. Más de la mitad debe votar
-              por la misma persona. Hay 2 oportunidades; una votación sin
-              mayoría también cuenta.
+              En cada misión memoriza una secuencia y reprodúcela. Una respuesta
+              correcta aporta +2; un error o no responder aporta +1.
             </li>
             <li>
-              Los animales ganan al descubrir al guarda o superar las 4
-              misiones. El guarda gana con 3 fallos, 2 acusaciones infructuosas
-              o una fuga incompleta al final.
+              El guarda puede ayudar o intentar una secuencia de sabotaje más
+              larga. Si acierta aporta −2; si falla aporta +1 y deja una pista
+              verdadera, si quedan detalles nuevos. No elegir acción aporta +1
+              sin pista.
+            </li>
+            <li>
+              La meta de la misión equivale al número de jugadores. Las
+              contribuciones se revelan mezcladas; nadie ve quién hizo cada
+              actividad.
+            </li>
+            <li>
+              Al resolver la misión, consulten las pistas. La primera deja
+              varios sospechosos; combinen la evidencia con las credenciales.
+              Una misión exitosa no demuestra inocencia.
+            </li>
+            <li>
+              Pueden votar a un sospechoso. Hace falta más de la mitad de los
+              votos. Hay 2 acusaciones; votar sin mayoría también consume una.
+              Nadie queda eliminado.
+            </li>
+            <li>
+              Los animales ganan al superar 3 de 4 misiones o descubrir al
+              guarda. El guarda gana con 2 fallos, al agotarse las acusaciones
+              sin descubrirlo o al terminar sin completar la fuga.
+            </li>
+            <li>
+              Los tiempos siguen corriendo aunque recargues. Reconectar recupera
+              la misma actividad, sin otro intento ni tiempo extra. No se
+              guardan las respuestas sin enviar.
             </li>
           </ol>
           <p className="muted">

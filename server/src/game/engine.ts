@@ -1,6 +1,6 @@
 import { randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import type {
-  Card,
+  Clue,
   GameState,
   MissionResult,
   Player,
@@ -10,12 +10,25 @@ import type {
   VoteResult,
 } from '../../../shared/protocol.js';
 import { gameConfig as config, missionTemplates } from './gameConfig.js';
+import { shuffle } from '../utils/random.js';
+import { memorySymbols } from '../../../shared/investigation.js';
+import { assignCredentials, discoverClue } from './investigation.js';
+import {
+  activityView,
+  advanceActivity,
+  beginActivity,
+  completeActivity,
+  createActivity,
+  defaultActivitySettings,
+  type Activity,
+  type ActivitySettings,
+} from './activity.js';
 
 interface InternalPlayer extends Player {
   token: string;
   socketId: string | null;
   role: Role | null;
-  cards: Card[];
+  activity: Activity | null;
   ready: boolean;
   disconnectedAt: number | null;
 }
@@ -28,7 +41,7 @@ export interface GameRoom {
   successfulMissions: number;
   failedMissions: number;
   accusationsRemaining: number;
-  playedCards: Map<string, Card>;
+  clues: Clue[];
   votes: Map<string, string>;
   history: MissionResult[];
   voteResult: VoteResult | null;
@@ -40,14 +53,6 @@ export interface GameRoom {
 const avatars = ['🦁', '🐯', '🐵', '🦊', '🐼', '🐨'];
 export function ensure(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
-}
-export function shuffle<T>(items: T[]): T[] {
-  const result = [...items];
-  for (let i = result.length - 1; i > 0; i--) {
-    const j = randomInt(i + 1);
-    [result[i], result[j]] = [result[j], result[i]];
-  }
-  return result;
 }
 export function resolveAccusation(
   votes: Map<string, string>,
@@ -64,6 +69,10 @@ export function resolveAccusation(
 }
 export class GameEngine {
   readonly rooms = new Map<string, GameRoom>();
+  constructor(
+    readonly now: () => number = Date.now,
+    readonly activitySettings: ActivitySettings = defaultActivitySettings,
+  ) {}
   name(value: unknown): string {
     ensure(typeof value === 'string', 'Escribe tu nombre.');
     const name = value.trim();
@@ -84,7 +93,8 @@ export class GameEngine {
       avatar,
       connected: true,
       role: null,
-      cards: [],
+      activity: null,
+      credential: null,
       ready: false,
       disconnectedAt: null,
     };
@@ -112,14 +122,14 @@ export class GameEngine {
       successfulMissions: 0,
       failedMissions: 0,
       accusationsRemaining: config.MAX_ACCUSATIONS,
-      playedCards: new Map(),
+      clues: [],
       votes: new Map(),
       history: [],
       voteResult: null,
       winner: null,
       reason: null,
       finishedAt: null,
-      updatedAt: Date.now(),
+      updatedAt: this.now(),
     };
     this.rooms.set(code, room);
     return { room, player };
@@ -142,7 +152,7 @@ export class GameEngine {
       avatars[0];
     const player = this.player(clean, socketId, avatar);
     room.players.push(player);
-    room.updatedAt = Date.now();
+    room.updatedAt = this.now();
     return { room, player };
   }
   resume(session: Session, socketId: string) {
@@ -161,13 +171,19 @@ export class GameEngine {
       a.length === b.length && timingSafeEqual(a, b),
       'No se pudo verificar la sesión.',
     );
+    ensure(
+      player.disconnectedAt === null ||
+        this.now() - player.disconnectedAt < config.RECONNECT_GRACE_TIME,
+      'El plazo de reconexión terminó.',
+    );
+    this.tickRoom(room);
     const oldSocket = player.socketId;
     player.socketId = socketId;
     player.connected = true;
     player.disconnectedAt = null;
     if (!room.players.some((p) => p.id === room.hostId && p.connected))
       room.hostId = player.id;
-    room.updatedAt = Date.now();
+    room.updatedAt = this.now();
     return { room, player, oldSocket };
   }
   session(room: GameRoom, player: InternalPlayer): Session {
@@ -195,17 +211,15 @@ export class GameEngine {
         room.players.every((p) => p.connected),
       'Se necesitan al menos 4 jugadores y todos deben estar conectados.',
     );
-    ensure(
-      config.NUMBER_OF_GUARDS >= 1 &&
-        config.NUMBER_OF_GUARDS < room.players.length,
-      'Configuración de guardas inválida.',
-    );
+    ensure(config.NUMBER_OF_GUARDS === 1, 'Configuración de guardas inválida.');
+    const credentials = assignCredentials(room.players.length);
     const guards = new Set(
       shuffle(room.players)
         .slice(0, config.NUMBER_OF_GUARDS)
         .map((p) => p.id),
     );
     for (const p of room.players) {
+      p.credential = credentials.pop()!;
       p.role = guards.has(p.id) ? 'guard' : 'animal';
       p.ready = false;
     }
@@ -216,41 +230,109 @@ export class GameEngine {
     const p = room.players.find((p) => p.id === id)!;
     ensure(!p.ready, 'Ya confirmaste tu rol.');
     p.ready = true;
-    if (room.players.every((p) => p.ready)) this.beginMission(room);
+    if (room.players.every((p) => p.ready)) this.prepareMission(room);
+  }
+  prepareMission(room: GameRoom) {
+    room.status = 'missionBrief';
+    room.votes.clear();
+    room.voteResult = null;
+    for (const p of room.players) p.activity = null;
   }
   beginMission(room: GameRoom) {
     room.status = 'mission';
-    room.playedCards.clear();
-    room.votes.clear();
-    room.voteResult = null;
+    const now = this.now();
     for (const p of room.players)
-      p.cards = (p.role === 'guard' ? [1, 2, 3, -1, -2, -3] : [1, 2, 3]).map(
-        (value) => ({ id: randomUUID(), value }),
-      );
+      p.activity = createActivity(now, this.activitySettings);
   }
-  play(room: GameRoom, id: string, cardId: unknown) {
+  chooseActivity(
+    room: GameRoom,
+    id: string,
+    activityId: unknown,
+    mode: unknown,
+  ) {
+    this.tickRoom(room);
     this.phase(room, 'mission');
-    ensure(!room.playedCards.has(id), 'Ya elegiste tu carta.');
-    const player = room.players.find((p) => p.id === id)!;
-    const card = player.cards.find((c) => c.id === cardId);
-    ensure(card, 'La carta no pertenece a tu mano.');
-    room.playedCards.set(id, card);
-    if (room.playedCards.size === room.players.length) {
-      const cards = shuffle([...room.playedCards.values()].map((c) => c.value));
+    const player = room.players.find((p) => p.id === id);
+    ensure(
+      player?.activity && player.activity.id === activityId,
+      'La actividad no pertenece a tu misión actual.',
+    );
+    ensure(mode === 'help' || mode === 'sabotage', 'Acción inválida.');
+    ensure(
+      mode === 'help' || player.role === 'guard',
+      'Solo el guarda puede sabotear.',
+    );
+    ensure(
+      player.activity.stage === 'choice',
+      'Ya elegiste o terminó el plazo de elección.',
+    );
+    beginActivity(player.activity, mode, this.now(), this.activitySettings);
+  }
+  submitActivity(
+    room: GameRoom,
+    id: string,
+    activityId: unknown,
+    answer: unknown,
+  ) {
+    this.tickRoom(room);
+    this.phase(room, 'mission');
+    const activity = room.players.find((p) => p.id === id)?.activity;
+    ensure(
+      activity && activity.id === activityId,
+      'La actividad no pertenece a tu misión actual.',
+    );
+    ensure(
+      activity.stage === 'answer',
+      'Solo puedes responder una vez, después de memorizar y antes de que termine el plazo.',
+    );
+    ensure(
+      Array.isArray(answer) &&
+        answer.length === activity.sequence.length &&
+        answer.every(
+          (v) => Number.isInteger(v) && v >= 0 && v < memorySymbols.length,
+        ),
+      'Completa la secuencia con los símbolos disponibles.',
+    );
+    completeActivity(
+      activity,
+      answer.every((value, i) => value === activity.sequence[i]),
+    );
+    this.tickRoom(room);
+  }
+  tickRoom(room: GameRoom, now = this.now()): boolean {
+    if (room.status !== 'mission') return false;
+    let changed = false;
+    for (const p of room.players) {
+      if (p.activity && advanceActivity(p.activity, now)) changed = true;
+    }
+    if (room.players.every((p) => p.activity?.stage === 'done')) {
+      const cards = shuffle(room.players.map((p) => p.activity!.contribution!));
       const total = cards.reduce((a, b) => a + b, 0);
       const requiredPoints = this.requiredPoints(room);
+      const guard = room.players.find((p) => p.role === 'guard')!;
+      const failedSabotage = guard.activity!.failedSabotage;
+      const missionId = missionTemplates[room.currentMission].id;
+      const clue = failedSabotage
+        ? discoverClue(room.players, guard.credential!, room.clues, missionId)
+        : null;
+      if (clue) room.clues.push(clue);
       const success = total >= requiredPoints;
       room.history.push({
-        missionId: missionTemplates[room.currentMission].id,
+        missionId,
         cards,
         total,
         requiredPoints,
         success,
+        clue,
+        evidence: clue ? 'found' : failedSabotage ? 'exhausted' : 'none',
       });
       if (success) room.successfulMissions++;
       else room.failedMissions++;
       room.status = 'missionResult';
+      room.updatedAt = now;
+      changed = true;
     }
+    return changed;
   }
   startVoting(room: GameRoom, id: string) {
     this.host(room, id);
@@ -278,11 +360,21 @@ export class GameEngine {
     room.status = 'finished';
     room.winner = winner;
     room.reason = reason;
-    room.finishedAt = Date.now();
+    room.finishedAt = this.now();
   }
   continue(room: GameRoom, id: string) {
     this.host(room, id);
-    this.phase(room, 'missionResult', 'discussion', 'voteResult');
+    this.phase(
+      room,
+      'missionBrief',
+      'missionResult',
+      'discussion',
+      'voteResult',
+    );
+    if (room.status === 'missionBrief') {
+      this.beginMission(room);
+      return;
+    }
     if (room.status === 'missionResult') {
       room.status = 'discussion';
       return;
@@ -318,7 +410,7 @@ export class GameEngine {
       return;
     }
     room.currentMission++;
-    this.beginMission(room);
+    this.prepareMission(room);
   }
   again(room: GameRoom, id: string) {
     this.host(room, id);
@@ -330,14 +422,15 @@ export class GameEngine {
     room.accusationsRemaining = config.MAX_ACCUSATIONS;
     room.history = [];
     room.voteResult = null;
-    room.playedCards.clear();
+    room.clues = [];
     room.votes.clear();
     room.winner = null;
     room.reason = null;
     room.finishedAt = null;
     for (const p of room.players) {
       p.role = null;
-      p.cards = [];
+      p.activity = null;
+      p.credential = null;
       p.ready = false;
     }
   }
@@ -346,7 +439,7 @@ export class GameEngine {
     if (!player) return;
     player.connected = false;
     player.socketId = null;
-    player.disconnectedAt = Date.now();
+    player.disconnectedAt = this.now();
     if (room.hostId === id)
       room.hostId = room.players.find((p) => p.connected)?.id ?? id;
   }
@@ -372,12 +465,15 @@ export class GameEngine {
     return {
       code: room.code,
       hostId: room.hostId,
-      players: room.players.map(({ id, name, connected, avatar }) => ({
-        id,
-        name,
-        connected,
-        avatar,
-      })),
+      players: room.players.map(
+        ({ id, name, connected, avatar, credential }) => ({
+          id,
+          name,
+          connected,
+          avatar,
+          credential,
+        }),
+      ),
       status: room.status,
       currentMission: room.currentMission,
       missions: missionTemplates.map((m) => ({
@@ -387,7 +483,10 @@ export class GameEngine {
       successfulMissions: room.successfulMissions,
       failedMissions: room.failedMissions,
       accusationsRemaining: room.accusationsRemaining,
-      submittedCards: room.playedCards.size,
+      completedActivities: room.players.filter(
+        (p) => p.activity?.stage === 'done',
+      ).length,
+      clues: room.clues,
       submittedVotes: room.votes.size,
       readyCount: room.players.filter((p) => p.ready).length,
       history: room.history,
@@ -404,6 +503,9 @@ export class GameEngine {
         maxFailedMissions: config.MAX_FAILED_MISSIONS,
         requiredSuccesses: config.REQUIRED_SUCCESSES,
         maxAccusations: config.MAX_ACCUSATIONS,
+        helpPoints: config.HELP_POINTS,
+        minimumPoints: config.MINIMUM_POINTS,
+        sabotagePoints: config.SABOTAGE_POINTS,
       },
     };
   }
@@ -411,8 +513,10 @@ export class GameEngine {
     const p = room.players.find((p) => p.id === id)!;
     return {
       role: p.role,
-      cards: p.cards,
-      hasPlayed: room.playedCards.has(id),
+      activity:
+        room.status === 'mission' && p.activity
+          ? activityView(p.activity, this.now())
+          : null,
       hasVoted: room.votes.has(id),
       ready: p.ready,
     };

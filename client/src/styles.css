@@ -1723,6 +1723,211 @@ input::placeholder {
     align-items: flex-start;
   }
 }
+.memory-activity {
+  margin-top: 20px;
+}
+.memory-activity p {
+  font-size: 13px;
+}
+.memory-activity .hand-heading {
+  align-items: center;
+}
+.memory-activity .activity-clock {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+  max-width: none;
+  white-space: nowrap;
+  color: var(--accent);
+}
+.memory-sequence,
+.answer-slots {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 0;
+  list-style: none;
+  gap: 10px;
+  margin: 23px 0;
+}
+.memory-sequence li,
+.answer-slots li {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-height: 86px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-soft);
+  border-radius: 10px;
+  padding: 10px 5px;
+}
+.memory-sequence li > span,
+.answer-slots li > span {
+  font-size: 27px;
+}
+.memory-sequence small,
+.answer-slots small {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.symbol-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.symbol-buttons button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 13px;
+  min-height: 52px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  border-radius: 8px;
+}
+.symbol-buttons button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+.symbol-buttons button > span {
+  font-size: 23px;
+}
+.sabotage-action {
+  color: var(--danger);
+  border-color: var(--danger-border);
+}
+.contribution-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 25px 0;
+}
+.contribution-card {
+  min-height: 135px;
+}
+.investigation-board {
+  margin-top: 25px;
+  padding: 23px;
+}
+.investigation-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  margin-bottom: 21px;
+}
+.investigation-heading h2 {
+  font-size: 24px;
+  margin-top: 12px;
+}
+.investigation-heading .eyebrow {
+  font-size: 8px;
+}
+.clue-list {
+  padding-left: 23px;
+  margin: 0;
+}
+.clue-list li {
+  padding: 13px 16px;
+  margin-bottom: 10px;
+  background: var(--wood-bg);
+  border: 1px solid var(--wood-border);
+  border-radius: 8px;
+}
+.clue-list .eyebrow {
+  font-size: 9px;
+  letter-spacing: 1px;
+}
+.clue-list p {
+  color: var(--text-primary);
+  font-size: 14px;
+  margin-top: 5px;
+}
+.candidate-summary {
+  margin: 20px 0;
+  font-size: 13px;
+}
+.credential-grid {
+  display: grid;
+  gap: 13px;
+  grid-template-columns: minmax(0, 1fr);
+}
+.credential-card {
+  padding: 18px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+.credential-card h3 {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.credential-card h3 > span {
+  font-size: 23px;
+}
+.credential-card dl {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 0;
+}
+.credential-card dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.credential-card dt {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.credential-card dd {
+  margin: 0;
+  font-size: 12px;
+  text-align: right;
+}
+.candidate-status {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+  margin-top: 14px;
+  color: var(--accent);
+  font-size: 11px;
+}
+.ruled-out {
+  background: var(--surface);
+  border-style: dashed;
+}
+.ruled-out .candidate-status {
+  color: var(--text-muted);
+}
+.investigation-note {
+  margin-top: 20px;
+  font-size: 12px;
+}
+.play-panel > .credential-card {
+  margin-top: 12px;
+}
+.evidence-result strong {
+  display: block;
+}
+@media (min-width: 768px) {
+  .credential-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .investigation-board {
+    padding: 30px;
+  }
+  .symbol-buttons {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .symbol-buttons button {
+    flex-direction: column;
+  }
+}
+@media (min-width: 1100px) {
+  .credential-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

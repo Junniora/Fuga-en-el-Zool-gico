@@ -58,17 +58,13 @@ export function GameCard({
   onClick,
 }: {
   card: Card;
-  selected: boolean;
-  disabled: boolean;
-  onClick: () => void;
+  selected?: boolean;
+  disabled?: boolean;
+  onClick?: () => void;
 }) {
-  return (
-    <button
-      className={`playing-card ${card.value < 0 ? 'sabotage' : ''} ${selected ? 'selected' : ''}`}
-      aria-pressed={selected}
-      disabled={disabled}
-      onClick={onClick}
-    >
+  const className = `playing-card ${card.value < 0 ? 'sabotage' : ''} ${selected ? 'selected' : ''}`;
+  const content = (
+    <>
       <span className="card-corner">
         {card.value > 0 ? '+' : ''}
         {card.value}
@@ -84,7 +80,19 @@ export function GameCard({
       </b>
       <span>{card.value < 0 ? 'Sabotaje' : 'Ayuda'}</span>
       {selected && <Check className="card-check" size={18} />}
+    </>
+  );
+  return onClick ? (
+    <button
+      className={className}
+      aria-pressed={selected}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {content}
     </button>
+  ) : (
+    <div className={`${className} contribution-card`}>{content}</div>
   );
 }
 export function SecretRole({

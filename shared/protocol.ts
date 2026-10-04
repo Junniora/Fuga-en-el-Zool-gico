@@ -2,6 +2,7 @@ export type Role = 'animal' | 'guard';
 export type Phase =
   | 'waiting'
   | 'roleReveal'
+  | 'missionBrief'
   | 'mission'
   | 'missionResult'
   | 'discussion'
@@ -13,6 +14,30 @@ export interface Player {
   name: string;
   connected: boolean;
   avatar: string;
+  credential: Credential | null;
+}
+export interface Credential {
+  wristband: string;
+  symbol: string;
+  tool: string;
+}
+export interface Clue {
+  id: string;
+  missionId: number;
+  field: keyof Credential;
+  value: string;
+  text: string;
+}
+export type ActivityMode = 'help' | 'sabotage';
+export type ActivityStage = 'choice' | 'memorize' | 'answer' | 'done';
+export interface ActivityView {
+  id: string;
+  stage: ActivityStage;
+  mode: ActivityMode | null;
+  sequence: number[] | null;
+  length: number;
+  deadlineAt: number;
+  serverNow: number;
 }
 export interface Card {
   id: string;
@@ -31,6 +56,8 @@ export interface MissionResult {
   total: number;
   requiredPoints: number;
   success: boolean;
+  clue: Clue | null;
+  evidence: 'found' | 'exhausted' | 'none';
 }
 export interface Vote {
   playerId: string;
@@ -55,7 +82,8 @@ export interface GameState {
   successfulMissions: number;
   failedMissions: number;
   accusationsRemaining: number;
-  submittedCards: number;
+  completedActivities: number;
+  clues: Clue[];
   submittedVotes: number;
   readyCount: number;
   history: MissionResult[];
@@ -69,12 +97,14 @@ export interface GameState {
     maxFailedMissions: number;
     requiredSuccesses: number;
     maxAccusations: number;
+    helpPoints: number;
+    minimumPoints: number;
+    sabotagePoints: number;
   };
 }
 export interface PrivateState {
   role: Role | null;
-  cards: Card[];
-  hasPlayed: boolean;
+  activity: ActivityView | null;
   hasVoted: boolean;
   ready: boolean;
 }
@@ -95,7 +125,8 @@ export interface Payloads {
   'resume-session': Session;
   'start-game': undefined;
   'ready-role': undefined;
-  'play-card': { cardId: string };
+  'choose-activity': { activityId: string; mode: ActivityMode };
+  'submit-activity': { activityId: string; answer: number[] };
   'start-voting': undefined;
   'submit-vote': { targetId: string };
   'continue-game': undefined;
