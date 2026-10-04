@@ -1,0 +1,133 @@
+/* Shared semantic palette. Components never need to know which theme is active. */
+:root {
+  color-scheme: light;
+  --bg-primary: #f5f3e9;
+  --surface: #fffef7;
+  --surface-soft: #edf0e0;
+  --surface-raised: #fcfcf5;
+  --surface-hover: #e4ebd5;
+  --surface-selected: #e5eccf;
+  --text-primary: #213d30;
+  --text-secondary: #596653;
+  --text-muted: #62705b;
+  --accent: #244d38;
+  --accent-heading: #61763d;
+  --accent-line: #6c8153;
+  --border-color: #d1d7c6;
+  --border-strong: #849476;
+  --focus-ring: #986428;
+  --success: #3d6236;
+  --success-bg: #e3edce;
+  --success-border: #a3b88a;
+  --danger: #914d30;
+  --danger-bg: #f4e3d7;
+  --danger-border: #bf9477;
+  --warning: #866424;
+  --shadow-surface: #d6dcc666;
+  --shadow-modal: #0a251b44;
+  --backdrop: #0c251c99;
+  --card-bg: #eef2df;
+  --card-text: #4d6741;
+  --card-border: #a7b891;
+  --card-shadow: #d6ddc7;
+  --sabotage-shadow: #e4cbb8;
+  --button-bg: #244d38;
+  --button-text: #fffef0;
+  --button-hover: #346345;
+  --button-shadow: #163726;
+  --brand-bg: #244d38;
+  --brand-text: #d5ec91;
+  --field-bg: #fcfcf5;
+  --wood: #846035;
+  --wood-bg: #efe7d9;
+  --wood-border: #c4aa83;
+
+  /* The illustrated night scene keeps its own palette in either UI theme. */
+  --art-bg: #193e33;
+  --art-shadow: #0c2b23;
+  --art-label: #b6c8a5;
+  --art-moon: #e4e8b2;
+  --art-moon-glow: #dfebad05;
+  --art-moon-halo: #dfebad04;
+  --art-stars: #a2bd93;
+  --art-hill: #28543d;
+  --art-hill-back: #224b3d;
+  --art-hill-front: #376443;
+  --art-fence: #819678;
+  --art-fence-bar: #82987a;
+  --art-fence-shadow: #102e2633;
+  --art-sign: #b89966;
+  --art-sign-border: #997748;
+  --art-sign-text: #344733;
+  --art-sign-shadow: #17392b;
+  --art-animal-shadow: #0e2f2670;
+  --art-plant: #628151;
+  --art-plant-shadow: #193d2e;
+  --art-caption-bg: #123328;
+  --art-caption-text: #bdc8a9;
+  --art-caption-muted: #a7ba96;
+  --art-dot: #c2da78;
+  --art-sticker-bg: #dfeba5;
+  --art-sticker-text: #213d30;
+  --art-sticker-shadow: #0b281d33;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg-primary: #12241e;
+  --surface: #1b3027;
+  --surface-soft: #273b2d;
+  --surface-raised: #23382e;
+  --surface-hover: #324c38;
+  --surface-selected: #354d35;
+  --text-primary: #f2f0df;
+  --text-secondary: #c0c9b7;
+  --text-muted: #abb9a4;
+  --accent: #b5cb91;
+  --accent-heading: #bdd79a;
+  --accent-line: #819767;
+  --border-color: #3c5140;
+  --border-strong: #71876a;
+  --focus-ring: #dfb576;
+  --success: #bed7a1;
+  --success-bg: #2e4530;
+  --success-border: #647e51;
+  --danger: #f0bb95;
+  --danger-bg: #4a3328;
+  --danger-border: #a17a58;
+  --warning: #debc7c;
+  --shadow-surface: #0c191780;
+  --shadow-modal: #08151099;
+  --backdrop: #071610b3;
+  --card-bg: #2c402d;
+  --card-text: #d0e0b6;
+  --card-border: #7d9567;
+  --card-shadow: #14241b;
+  --sabotage-shadow: #291f1a;
+  --button-bg: #b5cb91;
+  --button-text: #1d3225;
+  --button-hover: #c7dca7;
+  --button-shadow: #627c4d;
+  --brand-bg: #304a36;
+  --brand-text: #d8e7b4;
+  --field-bg: #14291f;
+  --wood: #d1af78;
+  --wood-bg: #3d3929;
+  --wood-border: #857251;
+  --art-bg: #16372d;
+}
+
+/* Initial paint is immediate; subsequent changes are gentle and respect reduced motion. */
+:where(
+  .theme-ready,
+  .theme-ready *,
+  .theme-ready *::before,
+  .theme-ready *::after
+) {
+  transition:
+    background-color 200ms ease,
+    color 200ms ease,
+    border-color 200ms ease,
+    box-shadow 200ms ease,
+    outline-color 200ms ease;
+}

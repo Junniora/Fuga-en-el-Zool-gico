@@ -22,11 +22,17 @@ import {
   Waiting,
 } from './components/GameParts';
 import { Modal } from './components/Modal';
+import { ThemeToggle } from './components/ThemeToggle';
+import { Credits } from './pages/Credits';
+import { useTheme } from './hooks/useTheme';
 
 export default function App() {
   const game = useGame();
+  const { theme, toggleTheme } = useTheme();
   const { room, secret, session, connected, restoring, busy, send } = game;
-  const [page, setPage] = useState<'home' | 'create' | 'join'>('home');
+  const [page, setPage] = useState<'home' | 'create' | 'join' | 'credits'>(
+    'home',
+  );
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [card, setCard] = useState('');
@@ -84,10 +90,11 @@ export default function App() {
           <button className="text-button" onClick={() => setRules(true)}>
             Cómo jugar <ArrowUpRight size={15} />
           </button>
+          <ThemeToggle theme={theme} onToggle={toggleTheme} />
         </div>
       </header>
       {game.error && (
-        <div className="error-banner" role="alert">
+        <div className="error-banner" id="game-error" role="alert">
           <span>{game.error}</span>
           <button aria-label="Cerrar aviso" onClick={() => game.setError('')}>
             <X size={18} />
@@ -112,7 +119,19 @@ export default function App() {
         </main>
       ) : !room ? (
         <>
-          {page === 'home' ? (
+          {page === 'credits' ? (
+            <Credits
+              onBack={() => {
+                setPage('home');
+                window.scrollTo(0, 0);
+                requestAnimationFrame(() =>
+                  document
+                    .getElementById('credits-link')
+                    ?.focus({ preventScroll: true }),
+                );
+              }}
+            />
+          ) : page === 'home' ? (
             <main className="home">
               <section className="hero-copy">
                 <span className="eyebrow">
@@ -149,6 +168,17 @@ export default function App() {
                     <RadioIcon /> En tiempo real
                   </span>
                 </div>
+                <button
+                  id="credits-link"
+                  className="text-button home-credits-link"
+                  onClick={() => {
+                    setPage('credits');
+                    window.scrollTo(0, 0);
+                  }}
+                >
+                  Conoce al equipo <span aria-hidden="true">·</span> Créditos{' '}
+                  <ArrowUpRight size={14} />
+                </button>
               </section>
               <section
                 className="jungle-art"
@@ -254,6 +284,7 @@ export default function App() {
                       required
                       placeholder="¿Cómo te llama tu manada?"
                       autoComplete="nickname"
+                      aria-describedby={game.error ? 'game-error' : undefined}
                     />
                   </label>
                   {page === 'join' && (
@@ -268,6 +299,7 @@ export default function App() {
                         autoCapitalize="characters"
                         autoComplete="off"
                         spellCheck={false}
+                        aria-describedby={game.error ? 'game-error' : undefined}
                       />
                     </label>
                   )}
@@ -733,11 +765,14 @@ export default function App() {
           </div>
         </main>
       )}
-      <footer>
+      <footer className={room ? 'game-footer' : 'site-footer'}>
         <span>
-          <PawPrint size={14} /> HECHO PARA JUGAR JUNTOS
+          <PawPrint size={14} />{' '}
+          {room
+            ? 'HECHO PARA JUGAR JUNTOS'
+            : 'Fuga en el Zoológico · Equipo #3 · 2026'}
         </span>
-        <span>Sin cuentas. Solo tu manada.</span>
+        {!room && <span>Sin cuentas. Solo tu manada.</span>}
       </footer>
       {rules && (
         <Modal titleId="rules-title" onClose={() => setRules(false)}>

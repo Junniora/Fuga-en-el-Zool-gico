@@ -33,6 +33,16 @@ fuga-zoologico/
 
 El cliente usa React, Vite, TypeScript, CSS, Lucide y Socket.IO Client. El servidor usa Node.js, Express, TypeScript y Socket.IO. No se necesita React Router: la fase autoritativa del servidor determina la pantalla. `shared/` contiene tipos y no importa código del motor al navegador.
 
+## Temas y créditos
+
+El botón de luna/sol del encabezado alterna entre modo claro y oscuro en todas las pantallas, incluidos formularios, cartas, resultados y modales. En la primera visita se respeta `prefers-color-scheme`; una elección manual se guarda como `light` o `dark` en la clave **`fuga-theme`** de `localStorage` y tiene prioridad sobre el sistema. Las pestañas abiertas sincronizan esa preferencia. Si el navegador bloquea el almacenamiento, el selector funciona durante la visita.
+
+La paleta está centralizada en `client/src/themes.css` mediante variables semánticas y `data-theme` en `<html>`. `client/public/theme-init.js` aplica el tema antes del primer render para evitar un destello del tema incorrecto; `useTheme.ts` gestiona los cambios posteriores. Las transiciones duran 200 ms y se desactivan con `prefers-reduced-motion`.
+
+**Créditos** se abre desde «Conoce al equipo · Créditos» en Home y regresa con «Volver al Home», usando la navegación por estado existente. `pages/Credits.tsx` contiene la información académica del Equipo #3 y utiliza `TeamMemberCard` para los cuatro integrantes. Las tarjetas se muestran en una columna en celular y dos a partir de 768 px. El footer académico aparece fuera de la partida; durante el juego se mantiene compacto.
+
+Estas preferencias son exclusivamente visuales: no cambian reglas, eventos Socket.IO, sesiones ni datos del servidor.
+
 ## Instalación y ejecución
 
 Requisito: **Node.js 24** con npm. Desde esta carpeta:
@@ -167,6 +177,8 @@ npm run test:e2e
 En Windows usa Microsoft Edge instalado. En Linux/macOS instala primero el navegador con `npx playwright install chromium`. La prueba inicia y cierra sus servidores en los puertos 3011 y 5175, juega las cuatro misiones, recarga una sesión, comprueba tamaños de móvil/tablet/escritorio y genera capturas en `previews/`. No debe haber otros procesos usando esos puertos.
 
 `npm run format` aplica el formato del proyecto y `npm run format:check` lo verifica.
+
+Las pruebas de navegador también comprueban el tema inicial del sistema, la persistencia manual, la sincronización entre pestañas, el almacenamiento bloqueado y movimiento reducido. Verifican Créditos en 375, 768 y 1280 px con ambas paletas y un contraste de texto mínimo de 4.5:1 en las combinaciones semánticas principales. El recorrido multijugador incluye cambiar el tema con una carta seleccionada y completar una acusación en modo oscuro. Las capturas nuevas se guardan en `previews/credits-{light|dark}-{ancho}.png`, `previews/mission-dark.png` y `previews/voting-dark.png`.
 
 Para ejecutar el backend compilado:
 
